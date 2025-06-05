@@ -35,7 +35,7 @@
     <el-table
       :data="paginatedCodeList"
       style="width: 100%; margin-top: 20px;"
-      v-if="paginatedCodeList.length"
+      v-if="filteredCodeList.length"
       @row-click="handleRowClick"
     >
       <el-table-column prop="id" label="ID"></el-table-column>
@@ -79,6 +79,7 @@ export default {
       searchQuery: '',
       currentPage: 1,
       pageSize: 8,
+      isUploading: false, // Flag to prevent multiple success messages
     };
   },
   computed: {
@@ -86,6 +87,9 @@ export default {
       const start = (this.currentPage - 1) * this.pageSize;
       const end = start + this.pageSize;
       return this.filteredCodeList.slice(start, end);
+    },
+    totalPages() {
+      return Math.ceil(this.filteredCodeList.length / this.pageSize);
     },
   },
   async created() {
@@ -117,12 +121,29 @@ export default {
         const response = await this.$http.get('/api/code/mycode');
         this.codeList = response.data;
         this.filteredCodeList = response.data;
+        // Adjust currentPage if it exceeds total pages after fetching
+        if (this.currentPage > this.totalPages && this.totalPages > 0) {
+          this.currentPage = this.totalPages;
+        } else if (this.filteredCodeList.length === 0) {
+          this.currentPage = 1;
+        }
       } catch (error) {
         console.error('Fetch code list error:', error.response?.data || error.message);
         this.$message.error('获取代码列表失败');
       }
     },
     async customUpload(options) {
+      // Check if already uploading to prevent multiple triggers
+      if (this.isUploading) return;
+
+      // Check for duplicate filename
+      const fileName = options.file.name;
+      if (this.codeList.some(item => item.fileName === fileName)) {
+        this.$message.warning('已经上传过了');
+        return; // Exit early to prevent upload
+      }
+
+      this.isUploading = true; // Set flag to prevent multiple uploads
       try {
         const formData = new FormData();
         formData.append('file', options.file);
@@ -135,9 +156,12 @@ export default {
       } catch (error) {
         console.error('Upload error:', error.response?.data || error.message);
         options.onError(error);
+      } finally {
+        this.isUploading = false; // Reset flag after upload completes
       }
     },
     async handleUploadSuccess() {
+      // Ensure success message is shown only once
       this.$message.success('上传成功');
       await this.fetchCodeList();
     },
@@ -149,6 +173,10 @@ export default {
         await this.$http.delete(`/api/code/${codeId}`);
         this.$message.success('删除成功');
         await this.fetchCodeList();
+        // Adjust currentPage if the current page is empty
+        if (this.paginatedCodeList.length === 0 && this.filteredCodeList.length > 0) {
+          this.currentPage = Math.min(this.currentPage, this.totalPages);
+        }
       } catch (error) {
         console.error('Delete code error:', error.response?.data || error.message);
         this.$message.error('删除失败');
@@ -165,6 +193,10 @@ export default {
         this.filteredCodeList = this.codeList.filter(item =>
           item.fileName.toLowerCase().includes(this.searchQuery.toLowerCase())
         );
+      }
+      // Adjust currentPage if it exceeds total pages after search
+      if (this.currentPage > this.totalPages && this.totalPages > 0) {
+        this.currentPage = this.totalPages;
       }
     },
     handlePageChange(page) {
