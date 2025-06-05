@@ -19,7 +19,7 @@
       accept=".java"
       v-if="$store.state.token"
     >
-      <el-button type="primary">上传代码</el-button>
+      <el-button type="primary">上传代码，使用UTF-8编码</el-button>
     </el-upload>
 
     <!-- 搜索框 -->

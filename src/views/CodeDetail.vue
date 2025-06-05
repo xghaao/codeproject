@@ -13,7 +13,7 @@
             placeholder="请输入代码"
             style="font-family: Consolas, monospace;"
           ></el-input>
-          <el-button type="primary" @click="updateCode" style="margin-top: 10px;">提交修改</el-button>
+          <el-button type="primary" @click="updateCode" style="margin-top: 10px;">提交修改，使用utf-8编码</el-button>
         </el-card>
       </el-col>
       <!-- 右侧：代码质量分析 -->
