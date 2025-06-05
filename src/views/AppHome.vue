@@ -22,11 +22,20 @@
       <el-button type="primary">上传代码</el-button>
     </el-upload>
 
+    <!-- 搜索框 -->
+    <el-input
+      v-model="searchQuery"
+      placeholder="按文件名搜索"
+      clearable
+      style="width: 300px; margin: 20px 0;"
+      @input="handleSearch"
+    ></el-input>
+
     <!-- 代码列表 -->
     <el-table
-      :data="codeList"
+      :data="paginatedCodeList"
       style="width: 100%; margin-top: 20px;"
-      v-if="codeList.length"
+      v-if="paginatedCodeList.length"
       @row-click="handleRowClick"
     >
       <el-table-column prop="id" label="ID"></el-table-column>
@@ -45,6 +54,17 @@
       </el-table-column>
     </el-table>
     <p v-else>暂无代码</p>
+
+    <!-- 分页 -->
+    <el-pagination
+      v-if="filteredCodeList.length > pageSize"
+      @current-change="handlePageChange"
+      :current-page="currentPage"
+      :page-size="pageSize"
+      :total="filteredCodeList.length"
+      layout="prev, pager, next"
+      style="margin-top: 20px; text-align: center;"
+    ></el-pagination>
   </div>
 </template>
 
@@ -54,8 +74,19 @@ export default {
   data() {
     return {
       codeList: [],
+      filteredCodeList: [],
       user: null,
+      searchQuery: '',
+      currentPage: 1,
+      pageSize: 8,
     };
+  },
+  computed: {
+    paginatedCodeList() {
+      const start = (this.currentPage - 1) * this.pageSize;
+      const end = start + this.pageSize;
+      return this.filteredCodeList.slice(start, end);
+    },
   },
   async created() {
     const token = this.$store.state.token || localStorage.getItem('token');
@@ -85,6 +116,7 @@ export default {
       try {
         const response = await this.$http.get('/api/code/mycode');
         this.codeList = response.data;
+        this.filteredCodeList = response.data;
       } catch (error) {
         console.error('Fetch code list error:', error.response?.data || error.message);
         this.$message.error('获取代码列表失败');
@@ -124,6 +156,19 @@ export default {
     },
     handleRowClick(row) {
       this.$router.push(`/code/${row.id}`);
+    },
+    handleSearch() {
+      this.currentPage = 1;
+      if (this.searchQuery.trim() === '') {
+        this.filteredCodeList = this.codeList;
+      } else {
+        this.filteredCodeList = this.codeList.filter(item =>
+          item.fileName.toLowerCase().includes(this.searchQuery.toLowerCase())
+        );
+      }
+    },
+    handlePageChange(page) {
+      this.currentPage = page;
     },
   },
 };
