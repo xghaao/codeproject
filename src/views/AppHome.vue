@@ -13,13 +13,13 @@
 
     <!-- 代码上传 -->
     <el-upload
+      action="#"
       :http-request="customUpload"
-      :on-success="handleUploadSuccess"
-      :on-error="handleUploadError"
       accept=".java"
       v-if="$store.state.token"
+      :show-file-list="false" 
     >
-      <el-button type="primary">上传代码，使用UTF-8编码</el-button>
+      <el-button type="primary">上传代码 (UTF-8编码)</el-button>
     </el-upload>
 
     <!-- 搜索框 -->
@@ -53,7 +53,7 @@
         </template>
       </el-table-column>
     </el-table>
-    <p v-else>暂无代码</p>
+    <p v-else>暂无代码，点击上方按钮上传您的第一个代码文件。</p>
 
     <!-- 分页 -->
     <el-pagination
@@ -79,17 +79,17 @@ export default {
       searchQuery: '',
       currentPage: 1,
       pageSize: 8,
-      isUploading: false, // Flag to prevent multiple success messages
+      isUploading: false,
     };
   },
   computed: {
     paginatedCodeList() {
       const start = (this.currentPage - 1) * this.pageSize;
       const end = start + this.pageSize;
-      return this.filteredCodeList.slice(start, end);
+      return Array.isArray(this.filteredCodeList) ? this.filteredCodeList.slice(start, end) : [];
     },
     totalPages() {
-      return Math.ceil(this.filteredCodeList.length / this.pageSize);
+      return Math.ceil((Array.isArray(this.filteredCodeList) ? this.filteredCodeList.length : 0) / this.pageSize);
     },
   },
   async created() {
@@ -105,6 +105,9 @@ export default {
       this.$router.push('/login');
     }
   },
+  beforeDestroy() {
+    this.isUploading = false;
+  },
   methods: {
     async fetchUser() {
       try {
@@ -119,64 +122,81 @@ export default {
     async fetchCodeList() {
       try {
         const response = await this.$http.get('/api/code/mycode');
-        this.codeList = response.data;
-        this.filteredCodeList = response.data;
-        // Adjust currentPage if it exceeds total pages after fetching
-        if (this.currentPage > this.totalPages && this.totalPages > 0) {
-          this.currentPage = this.totalPages;
-        } else if (this.filteredCodeList.length === 0) {
+        const data = response.data || [];
+        this.codeList = Array.isArray(data) ? data : [];
+        this.handleSearch(); 
+        
+        if (this.filteredCodeList.length === 0) {
           this.currentPage = 1;
+        } else if (this.currentPage > this.totalPages) {
+          this.currentPage = this.totalPages;
         }
       } catch (error) {
         console.error('Fetch code list error:', error.response?.data || error.message);
         this.$message.error('获取代码列表失败');
+        this.codeList = [];
+        this.filteredCodeList = [];
+        this.currentPage = 1;
       }
     },
     async customUpload(options) {
-      // Check if already uploading to prevent multiple triggers
-      if (this.isUploading) return;
-
-      // Check for duplicate filename
-      const fileName = options.file.name;
-      if (this.codeList.some(item => item.fileName === fileName)) {
-        this.$message.warning('已经上传过了');
-        return; // Exit early to prevent upload
+      if (this.isUploading) {
+        this.$message.warning('正在上传中，请稍候...');
+        return;
       }
 
-      this.isUploading = true; // Set flag to prevent multiple uploads
+      const token = this.$store.state.token;
+      if (!token) {
+        this.$message.error('登录状态失效，请重新登录');
+        this.$router.push('/login');
+        return;
+      }
+
+      const fileName = options.file.name;
+      if (this.codeList.some(item => item.fileName.toLowerCase() === fileName.toLowerCase())) {
+        this.$message.warning(`文件 "${fileName}" 已存在，请勿重复上传`);
+        return;
+      }
+
+      this.isUploading = true;
       try {
         const formData = new FormData();
         formData.append('file', options.file);
+        
         const response = await this.$http.post('/api/code/upload', formData, {
           headers: {
             'Content-Type': 'multipart/form-data',
+            Authorization: `Bearer ${token}`,
           },
         });
-        options.onSuccess(response.data);
+
+        // --- 核心修复 ---
+        // 根据API文档，成功时会返回一个包含 'id' 的 Code 对象。
+        // 我们就用这个作为成功的判断依据。
+        if (response.data && response.data.id) {
+          this.$message.success('上传成功');
+          await this.fetchCodeList(); // 刷新列表
+          options.onSuccess(response.data); // 通知 el-upload UI 更新
+        } else {
+          // 这种情况理论上不应该发生，除非后端返回了2xx状态但响应体为空或格式不符
+          const errorMessage = '上传失败：服务器返回了无效的响应数据';
+          this.$message.error(errorMessage);
+          options.onError(new Error(errorMessage));
+        }
       } catch (error) {
-        console.error('Upload error:', error.response?.data || error.message);
+        const errorMessage = error.response?.data?.message || error.message || '上传失败，请检查网络或服务器状态';
+        this.$message.error(`上传失败: ${errorMessage}`);
+        console.error('Upload error details:', error);
         options.onError(error);
       } finally {
-        this.isUploading = false; // Reset flag after upload completes
+        this.isUploading = false;
       }
-    },
-    async handleUploadSuccess() {
-      // Ensure success message is shown only once
-      this.$message.success('上传成功');
-      await this.fetchCodeList();
-    },
-    handleUploadError() {
-      this.$message.error('上传失败');
     },
     async deleteCode(codeId) {
       try {
         await this.$http.delete(`/api/code/${codeId}`);
         this.$message.success('删除成功');
         await this.fetchCodeList();
-        // Adjust currentPage if the current page is empty
-        if (this.paginatedCodeList.length === 0 && this.filteredCodeList.length > 0) {
-          this.currentPage = Math.min(this.currentPage, this.totalPages);
-        }
       } catch (error) {
         console.error('Delete code error:', error.response?.data || error.message);
         this.$message.error('删除失败');
@@ -187,16 +207,15 @@ export default {
     },
     handleSearch() {
       this.currentPage = 1;
+      if (!Array.isArray(this.codeList)) {
+        this.codeList = [];
+      }
       if (this.searchQuery.trim() === '') {
         this.filteredCodeList = this.codeList;
       } else {
         this.filteredCodeList = this.codeList.filter(item =>
           item.fileName.toLowerCase().includes(this.searchQuery.toLowerCase())
         );
-      }
-      // Adjust currentPage if it exceeds total pages after search
-      if (this.currentPage > this.totalPages && this.totalPages > 0) {
-        this.currentPage = this.totalPages;
       }
     },
     handlePageChange(page) {
